@@ -67,10 +67,6 @@ class TestAgenticResearchAssistant(unittest.TestCase):
             if original_key is not None:
                 os.environ["GROQ_API_KEY"] = original_key
 
-if __name__ == '__main__':
-    unittest.main()
-
-
     def test_research_endpoint_logs_flow_without_query_text(self):
         """Execution logs should show request flow without exposing user input."""
         secret_query = "private-query-do-not-log"
@@ -115,3 +111,39 @@ if __name__ == '__main__':
         self.assertEqual(should_continue({"messages": [tool_request]}), "tools")
         self.assertEqual(should_continue({"messages": [final_answer]}), "end")
         self.assertEqual(should_continue({"messages": []}), "end")
+
+
+    def test_tool_node_executes_tavily_call_without_logging_query(self):
+        """Tool execution should preserve Tavily behavior without printing query text."""
+        from app.agent import tool_node
+
+        private_query = "private-search-term-do-not-log"
+        fake_tool = MagicMock()
+        fake_tool.name = "tavily_search"
+        fake_tool.invoke.return_value = {
+            "results": [{"title": "Example", "url": "https://example.com", "content": "Result"}]
+        }
+        ai_message = AIMessage(
+            content="",
+            tool_calls=[{
+                "name": "tavily_search",
+                "args": {"query": private_query},
+                "id": "call-2",
+                "type": "tool_call",
+            }],
+        )
+
+        with patch("app.agent.get_search_tool", return_value=fake_tool):
+            with self.assertLogs("langgraph.agent", level="INFO") as captured:
+                result = tool_node({"messages": [ai_message]})
+
+        self.assertEqual(len(result["messages"]), 1)
+        self.assertEqual(result["messages"][0].tool_call_id, "call-2")
+        fake_tool.invoke.assert_called_once_with({"query": private_query})
+        log_output = "\\n".join(captured.output)
+        self.assertIn("[TAVILY SEARCH]", log_output)
+        self.assertNotIn(private_query, log_output)
+
+
+if __name__ == "__main__":
+    unittest.main()
