@@ -190,6 +190,7 @@ class TestAgenticResearchAssistant(unittest.TestCase):
         from app.agent import tool_node
 
         private_query = "private-search-term-do-not-log"
+        malicious_name = "tavily_search\nFAKE LOG ENTRY"
         malicious_id = "call-2\r\nforged=true"
         fake_tool = MagicMock()
         fake_tool.name = "tavily_search"
@@ -198,20 +199,28 @@ class TestAgenticResearchAssistant(unittest.TestCase):
         }
         ai_message = AIMessage(
             content="",
-            tool_calls=[{
-                "name": "tavily_search",
-                "args": {"query": private_query},
-                "id": malicious_id,
-                "type": "tool_call",
-            }],
+            tool_calls=[
+                {
+                    "name": malicious_name,
+                    "args": {"query": "must-not-run"},
+                    "id": "unknown-call",
+                    "type": "tool_call",
+                },
+                {
+                    "name": "tavily_search",
+                    "args": {"query": private_query},
+                    "id": malicious_id,
+                    "type": "tool_call",
+                },
+            ],
         )
 
         with patch("app.agent.get_search_tool", return_value=fake_tool):
             with self.assertLogs("research_assistant.agent", level="INFO") as captured:
                 result = tool_node({"messages": [ai_message]})
 
-        self.assertEqual(len(result["messages"]), 1)
-        self.assertEqual(result["messages"][0].tool_call_id, malicious_id)
+        self.assertEqual(len(result["messages"]), 2)
+        self.assertEqual(result["messages"][1].tool_call_id, malicious_id)
         fake_tool.invoke.assert_called_once_with({"query": private_query})
         log_output = "\n".join(captured.output)
         self.assertIn("[TOOL START]", log_output)
