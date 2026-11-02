@@ -241,7 +241,7 @@ class TestAgenticResearchAssistant(unittest.TestCase):
         self.assertEqual(safe_log_value("name\nforged"), "name\\x0aforged")
         self.assertEqual(
             safe_log_value("a\u0085b\u2028c\u2029d\u0080"),
-            "a\\u0085b\\u2028c\\u2029d\\u0080",
+            "a\\x85b\\u2028c\\u2029d\\x80",
         )
         self.assertEqual(safe_log_value(r"literal\x0a"), r"literal\\x0a")
         self.assertEqual("".join(safe_log_value("a\u0085b\u2028c\u2029d").splitlines()),
