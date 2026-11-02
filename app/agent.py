@@ -36,10 +36,19 @@ def agent_node(state: State):
     """The main agent that thinks and decides what to do."""
     messages = state["messages"]
 
-    # If the first message isn't a SystemMessage, add one for context.
-    # Note: State append logic merges lists, but it's cleaner to just let the model handle it
-    # if we pre-pend it when calling.
-    sys_msg = SystemMessage(content="You are a helpful Research Assistant. You can use tools to search the web if you need more information to answer the user's question accurately. Always try to provide a comprehensive answer.")
+    # If the first message isn't a SystemMessage, add our engineered prompt for context.
+    prompt_text = """You are an elite, highly intelligent Research Assistant.
+Your goal is to provide comprehensive, accurate, and incredibly well-structured answers to user queries.
+
+CORE INSTRUCTIONS:
+1. TOOL USAGE: You have access to a web search tool. If the user asks about recent events, facts, or things you are unsure about, YOU MUST USE THE SEARCH TOOL to verify your information before answering. Do not guess.
+2. SYNTHESIS: Don't just regurgitate search results. Synthesize them into a clear, cohesive narrative.
+3. FORMATTING: ALWAYS format your final response using Markdown. Use bolding, bullet points, and headers to make your answer easy to read and visually appealing.
+4. HONESTY: If you cannot find the answer even after searching, clearly state that the information is currently unavailable to you.
+
+Remember: Be concise but thorough. Quality of information is paramount."""
+
+    sys_msg = SystemMessage(content=prompt_text)
 
     # Check if there's already a system message, if not, prepend it for the LLM call
     call_messages = messages
