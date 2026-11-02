@@ -62,6 +62,25 @@ class TestAgenticResearchAssistant(unittest.TestCase):
             if original_key is not None:
                 os.environ["GROQ_API_KEY"] = original_key
 
+    def test_research_endpoint_malformed_api_key_logs_duration(self):
+        """Malformed credentials also produce a duration-bearing terminal record."""
+        original_key = os.environ.get("GROQ_API_KEY")
+        os.environ["GROQ_API_KEY"] = "malformed-key"
+        try:
+            with self.assertLogs("research_assistant.api", level="ERROR") as captured:
+                response = client.post("/research", json={"query": "test"})
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("Invalid Groq API key format", response.json()["error"])
+            output = "\\n".join(captured.output)
+            self.assertIn("[REQUEST REJECTED]", output)
+            self.assertIn("duration_seconds=", output)
+            self.assertIn("request_id=", output)
+        finally:
+            if original_key is not None:
+                os.environ["GROQ_API_KEY"] = original_key
+            else:
+                os.environ.pop("GROQ_API_KEY", None)
+
     def test_research_endpoint_logs_flow_without_query_text(self):
         """Execution logs include correlation IDs but never user input."""
         secret_query = "private-query-do-not-log"
