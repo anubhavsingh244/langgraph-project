@@ -1,8 +1,9 @@
+import logging
 import os
 from typing import Annotated, TypedDict
 from dotenv import load_dotenv
 
-from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage, AIMessage
+from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage
 from langchain_groq import ChatGroq
 from langchain_tavily import TavilySearch
 
@@ -10,68 +11,63 @@ from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 
 # --------------------------------------------------------------------------
-# 1. SETUP & CONFIGURATION
+# DEBUGGING / LOGGING
 # --------------------------------------------------------------------------
-# load_dotenv() reads the .env file in your folder and loads variables like GROQ_API_KEY
-# securely into the environment so we don't have to hardcode them.
+# Set LOG_LEVEL=DEBUG for verbose diagnostics; INFO logs the graph flow.
+# Do not log API keys or full prompts/messages because they may contain secrets.
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+)
+logger = logging.getLogger("langgraph.agent")
+
 load_dotenv()
 
-# Initialize the Groq Large Language Model (LLM).
-# Think of this as the "brain" of our agent. We are using 'openai/gpt-oss-120b',
-# OpenAI's open-weight reasoning model, served on Groq. It supports tool calling.
-# Initialize the tool our agent will use. Tavily is a search API built for AI agents.
-# We use it instead of scraping DuckDuckGo because scraping gets blocked/timed out
-# on cloud hosts like Render. It needs a free TAVILY_API_KEY (https://tavily.com).
-# The tool is created lazily (on first use) so the app can start without the key.
 _cached_search_tool = None
 
+
 def get_search_tool():
-    """Lazily creates the Tavily search tool, with a clear error if the key is missing."""
+    """Lazily create and cache the Tavily search tool."""
     global _cached_search_tool
     if _cached_search_tool is None:
+        logger.debug("Initializing Tavily search tool")
         if not os.environ.get("TAVILY_API_KEY"):
+            logger.error("TAVILY_API_KEY is missing")
             raise RuntimeError("Tavily API key is not set. Please set the TAVILY_API_KEY environment variable.")
         _cached_search_tool = TavilySearch(max_results=5)
+        logger.info("Tavily search tool initialized")
+    else:
+        logger.debug("Reusing cached Tavily search tool")
     return _cached_search_tool
 
 
-# --------------------------------------------------------------------------
-# 2. STATE DEFINITION
-# --------------------------------------------------------------------------
-# LangGraph apps are "Stateful". This means they keep track of data as they run.
-# Here, our state is simply a list of messages (the conversation history).
-# The `add_messages` function tells LangGraph: "when new messages come in, append them to the list, don't overwrite it."
 class State(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
 
-# --------------------------------------------------------------------------
-# 3. NODES (The actors in our graph)
-# --------------------------------------------------------------------------
-
-# We create a global variable to cache the LLM and tools.
-# This prevents us from creating a new client every single time the agent thinks.
 _cached_llm_with_tools = None
 
+
 def get_llm_with_tools():
-    """Lazily initializes and caches the LLM to avoid startup crashes if the API key is missing, while retaining connection reuse."""
+    """Lazily initialize and cache the LLM with the search tool."""
     global _cached_llm_with_tools
     if _cached_llm_with_tools is None:
+        logger.info("Initializing Groq LLM and binding search tool")
         llm = ChatGroq(model_name="openai/gpt-oss-120b", temperature=0.7)
         _cached_llm_with_tools = llm.bind_tools([get_search_tool()])
+        logger.info("Groq LLM initialized and search tool bound")
+    else:
+        logger.debug("Reusing cached Groq LLM")
     return _cached_llm_with_tools
 
+
 def agent_node(state: State):
-    """
-    NODE 1: The Agent
-    This function looks at the conversation history and decides what to do next.
-    It might generate a final answer, or it might decide to use the search tool.
-    """
+    """Call the LLM and return its response to the graph state."""
+    messages = state["messages"]
+    logger.info("[NODE ENTER] agent | messages=%d", len(messages))
     llm_with_tools = get_llm_with_tools()
 
-    messages = state["messages"]
-
-    # Prompt Engineering: We give the AI a "persona" and strict rules to follow.
     prompt_text = """You are an elite, highly intelligent Research Assistant.
 Your goal is to provide comprehensive, accurate, and incredibly well-structured answers to user queries.
 
@@ -84,22 +80,44 @@ CORE INSTRUCTIONS:
 Remember: Be concise but thorough. Quality of information is paramount."""
 
     sys_msg = SystemMessage(content=prompt_text)
-
-    # We silently add our secret instructions to the very beginning of the message list
-    # before we send it to the AI.
     call_messages = messages
     if not any(isinstance(m, SystemMessage) for m in messages):
         call_messages = [sys_msg] + messages
 
-    # Send the messages to the AI and wait for its response
-    response = llm_with_tools.invoke(call_messages)
+    logger.debug(
+        "[LLM INVOKE] agent | input_messages=%d | latest_type=%s",
+        len(call_messages),
+        messages[-1].__class__.__name__ if messages else "none",
+    )
+    try:
+        response = llm_with_tools.invoke(call_messages)
+    except Exception:
+        logger.exception("[LLM ERROR] agent invocation failed")
+        raise
 
-    # Return the AI's response so LangGraph can add it to the state (conversation history)
+    tool_calls = getattr(response, "tool_calls", None) or []
+    logger.info(
+        "[NODE EXIT] agent | response_type=%s | tool_calls=%d",
+        response.__class__.__name__,
+        len(tool_calls),
+    )
+    for call in tool_calls:
+        args = call.get("args", {})
+        safe_args = {
+            key: ("<redacted>" if any(part in key.lower() for part in ("key", "token", "secret", "password")) else value)
+            for key, value in args.items()
+        }
+        logger.info(
+            "[LLM TOOL REQUEST] name=%s | call_id=%s | args=%s",
+            call.get("name", "unknown"),
+            call.get("id", "unknown"),
+            safe_args,
+        )
     return {"messages": [response]}
 
 
 def format_search_results(result) -> str:
-    """Turns Tavily's response into compact text the LLM can read."""
+    """Turn Tavily's response into compact text the LLM can read."""
     if isinstance(result, dict):
         if result.get("error"):
             raise RuntimeError(result["error"])
@@ -107,104 +125,82 @@ def format_search_results(result) -> str:
         if not items:
             return "No results found."
         return "\n\n".join(
-            f"Title: {r.get('title', '')}\nURL: {r.get('url', '')}\nContent: {r.get('content', '')}"
-            for r in items
+            f"Title: {item.get('title', '')}\nURL: {item.get('url', '')}\nContent: {item.get('content', '')}"
+            for item in items
         )
     return str(result)
 
 
 def tool_node(state: State):
-    """
-    NODE 2: The Tool Executor
-    If the agent decides it needs to search the web, LangGraph will send the state here.
-    This function actually runs the search on Tavily and returns the results.
-    """
+    """Execute tool calls requested by the agent node."""
     messages = state["messages"]
-    last_message = messages[-1] # The last message is what the AI just said
+    last_message = messages[-1] if messages else None
+    tool_calls = getattr(last_message, "tool_calls", None) or []
+    logger.info("[NODE ENTER] tools | pending_tool_calls=%d", len(tool_calls))
 
-    # Double check if the AI actually asked to use a tool
-    if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
+    if not tool_calls:
+        logger.warning("[NODE SKIP] tools | no tool calls found in latest message")
         return {"messages": []}
 
     tool_messages = []
-    # Loop through the tools the AI wants to run
-    for tool_call in last_message.tool_calls:
-        search_tool = get_search_tool()
-        if tool_call["name"] != search_tool.name:
-            content = f"Error: Unknown tool '{tool_call['name']}'."
-        else:
-            query = tool_call["args"].get("query")
-            if not query:
-                content = "Error: No query provided for search."
+    for index, tool_call in enumerate(tool_calls, start=1):
+        tool_name = tool_call.get("name", "unknown")
+        call_id = tool_call.get("id", "unknown")
+        logger.info("[TOOL START] %d/%d | name=%s | call_id=%s", index, len(tool_calls), tool_name, call_id)
+
+        try:
+            search_tool = get_search_tool()
+            if tool_name != search_tool.name:
+                content = f"Error: Unknown tool '{tool_name}'."
+                logger.error("[TOOL ERROR] Unknown tool requested: %s", tool_name)
             else:
-                print(f"Executing search for: {query}")
-                try:
-                    # This actually searches the internet!
+                query = tool_call.get("args", {}).get("query")
+                if not query:
+                    content = "Error: No query provided for search."
+                    logger.warning("[TOOL ERROR] Empty search query")
+                else:
+                    logger.info("[TAVILY SEARCH] query=%s", query)
                     content = format_search_results(search_tool.invoke({"query": query}))
-                except Exception as e:
-                    # If search fails (timeout, quota, network), don't crash the whole request.
-                    # Tell the AI what happened so it can still answer and be honest about it.
-                    print(f"Search failed: {e}")
-                    content = (
-                        f"Search failed: {e}. Answer from your own knowledge if you can, "
-                        "and clearly tell the user that live web search was unavailable."
-                    )
+                    logger.info("[TOOL SUCCESS] name=%s | result_chars=%d", tool_name, len(content))
+        except Exception as exc:
+            logger.exception("[TOOL FAILURE] name=%s", tool_name)
+            content = (
+                f"Search failed: {exc}. Answer from your own knowledge if you can, "
+                "and clearly tell the user that live web search was unavailable."
+            )
 
-        # We format the result into a 'ToolMessage' so the AI knows
-        # this is the answer to its search query.
-        tool_messages.append(
-            ToolMessage(content=content, tool_call_id=tool_call["id"], name=tool_call["name"])
-        )
+        tool_messages.append(ToolMessage(content=content, tool_call_id=call_id, name=tool_name))
 
+    logger.info("[NODE EXIT] tools | tool_messages=%d", len(tool_messages))
     return {"messages": tool_messages}
 
 
-# --------------------------------------------------------------------------
-# 4. CONDITIONAL ROUTING (The logic of the graph)
-# --------------------------------------------------------------------------
-
 def should_continue(state: State) -> str:
-    """
-    This is a routing function. After the agent speaks, we use this to decide:
-    Does the conversation go to the 'tools' node, or is it 'end' finished?
-    """
+    """Route to tools when the latest AI message requests a tool; otherwise finish."""
     messages = state["messages"]
-    last_message = messages[-1]
+    last_message = messages[-1] if messages else None
+    tool_calls = getattr(last_message, "tool_calls", None) or []
 
-    # If the AI's last message contains a request to use a tool, route to "tools"
-    if getattr(last_message, "tool_calls", None):
+    if tool_calls:
+        logger.info("[ROUTE] agent -> tools | tool_calls=%d", len(tool_calls))
         return "tools"
-    # Otherwise, the AI gave a final answer, so we route to "end"
+
+    logger.info("[ROUTE] agent -> END | no tool calls")
     return "end"
 
 
-# --------------------------------------------------------------------------
-# 5. BUILDING THE GRAPH (Putting it all together)
-# --------------------------------------------------------------------------
-
-# Create the graph blueprint, telling it to use our State definition
 workflow = StateGraph(State)
-
-# Add our two actors (nodes) to the graph
 workflow.add_node("agent", agent_node)
 workflow.add_node("tools", tool_node)
-
-# When the graph starts, it should ALWAYS start at the agent node
 workflow.set_entry_point("agent")
-
-# After the agent node finishes, use our 'should_continue' logic to decide what happens next
 workflow.add_conditional_edges(
     "agent",
     should_continue,
     {
-        "tools": "tools", # If should_continue returns "tools", go to the tools node
-        "end": END        # If it returns "end", finish the execution
-    }
+        "tools": "tools",
+        "end": END,
+    },
 )
-
-# If we went to the tools node, ALWAYS go back to the agent afterwards
-# so the agent can read the search results!
 workflow.add_edge("tools", "agent")
-
-# Compile the graph into a runnable application
 app_graph = workflow.compile()
+logger.info("LangGraph workflow compiled | nodes=agent,tools | entry=agent")
