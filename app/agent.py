@@ -10,6 +10,8 @@ from langchain_tavily import TavilySearch
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 
+load_dotenv()
+
 # --------------------------------------------------------------------------
 # DEBUGGING / LOGGING
 # --------------------------------------------------------------------------
@@ -21,8 +23,6 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
 )
 logger = logging.getLogger("langgraph.agent")
-
-load_dotenv()
 
 _cached_search_tool = None
 
@@ -104,7 +104,13 @@ Remember: Be concise but thorough. Quality of information is paramount."""
     for call in tool_calls:
         args = call.get("args", {})
         safe_args = {
-            key: ("<redacted>" if any(part in key.lower() for part in ("key", "token", "secret", "password")) else value)
+            key: (
+                "<omitted>"
+                if key.lower() == "query"
+                else "<redacted>"
+                if any(part in key.lower() for part in ("key", "token", "secret", "password"))
+                else value
+            )
             for key, value in args.items()
         }
         logger.info(
@@ -159,7 +165,7 @@ def tool_node(state: State):
                     content = "Error: No query provided for search."
                     logger.warning("[TOOL ERROR] Empty search query")
                 else:
-                    logger.info("[TAVILY SEARCH] query=%s", query)
+                    logger.info("[TAVILY SEARCH] query_chars=%d", len(query))
                     content = format_search_results(search_tool.invoke({"query": query}))
                     logger.info("[TOOL SUCCESS] name=%s | result_chars=%d", tool_name, len(content))
         except Exception as exc:
