@@ -20,6 +20,7 @@
         .answer-section { margin-top: 20px; padding: 20px; background-color: #e8f5e9; border-radius: 4px; display: none; }
         .error { color: red; margin-top: 10px; display: none; }
     </style>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
 
@@ -41,7 +42,7 @@
 
     <div class="answer-section" id="answerSection">
         <h3>Final Answer:</h3>
-        <div id="finalAnswer"></div>
+        <div id="finalAnswer" style="white-space: pre-wrap; font-family: inherit;"></div>
     </div>
 
     <div class="log-section" id="logSection">
@@ -91,7 +92,7 @@ and updates the webpage with the results.
 
             // 5. Update the page with the Final Answer
             // We use regex (/\n/g) to replace newline characters from the AI with HTML <br> tags
-            document.getElementById("finalAnswer").innerHTML = data.answer.replace(/\n/g, '<br>');
+            document.getElementById("finalAnswer").innerHTML = marked.parse(data.answer);
             document.getElementById("answerSection").style.display = "block";
 
             // 6. Update the page with the "Thought Process" Log

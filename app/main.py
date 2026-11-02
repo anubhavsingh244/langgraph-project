@@ -20,16 +20,24 @@ class ResearchRequest(BaseModel):
 # API ENDPOINTS
 # --------------------------------------------------------------------------
 
+@app.get("/healthz")
+async def health_check():
+    """
+    Health Check Endpoint.
+    Cloud platforms (like Render) will ping this URL to make sure the server is awake and healthy.
+    """
+    return {"status": "healthy"}
+
 # @app.post tells FastAPI: "If someone sends a POST request to '/research', run this function"
 @app.post("/research")
-async def run_research(request: ResearchRequest):
+def run_research(request: ResearchRequest):
     """
     Endpoint to trigger the LangGraph agent with a user's query.
     'async' is used because talking to an AI over the internet takes time,
     and we don't want to freeze the whole server while waiting!
     """
     # 1. Security Check: Ensure the API key exists before trying to run the AI.
-    if not os.environ.get("GROQ_API_KEY") and not os.environ.get("GROQ_API_KEY", "").startswith("gsk_"):
+    if not os.environ.get("GROQ_API_KEY") or not os.environ.get("GROQ_API_KEY", "").startswith("gsk_"):
          return {"error": "Groq API key is not set. Please set the GROQ_API_KEY environment variable."}
 
     # 2. Setup the Initial State for LangGraph

@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 import os
 
 # Set a dummy API key before importing the app to bypass validation
-os.environ["GROQ_API_KEY"] = "dummy_key_for_tests"
+os.environ["GROQ_API_KEY"] = "gsk_dummy_key_for_tests"
 
 from app.main import app
 from langchain_core.messages import AIMessage
