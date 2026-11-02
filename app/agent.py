@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage, AIMessage
 from langchain_groq import ChatGroq
-from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_tavily import TavilySearch
 
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
@@ -19,12 +19,20 @@ load_dotenv()
 # Initialize the Groq Large Language Model (LLM).
 # Think of this as the "brain" of our agent. We are using 'openai/gpt-oss-120b',
 # OpenAI's open-weight reasoning model, served on Groq. It supports tool calling.
-# Initialize the tool our agent will use. DuckDuckGoSearchRun allows the AI to search the web!
-search_tool = DuckDuckGoSearchRun()
+# Initialize the tool our agent will use. Tavily is a search API built for AI agents.
+# We use it instead of scraping DuckDuckGo because scraping gets blocked/timed out
+# on cloud hosts like Render. It needs a free TAVILY_API_KEY (https://tavily.com).
+# The tool is created lazily (on first use) so the app can start without the key.
+_cached_search_tool = None
 
-# We need to tell the LLM that it has permission to use this tool.
-# bind_tools() gives the AI a "manual" on how and when to use the search tool.
-tools = [search_tool]
+def get_search_tool():
+    """Lazily creates the Tavily search tool, with a clear error if the key is missing."""
+    global _cached_search_tool
+    if _cached_search_tool is None:
+        if not os.environ.get("TAVILY_API_KEY"):
+            raise RuntimeError("Tavily API key is not set. Please set the TAVILY_API_KEY environment variable.")
+        _cached_search_tool = TavilySearch(max_results=5)
+    return _cached_search_tool
 
 
 # --------------------------------------------------------------------------
@@ -50,7 +58,7 @@ def get_llm_with_tools():
     global _cached_llm_with_tools
     if _cached_llm_with_tools is None:
         llm = ChatGroq(model_name="openai/gpt-oss-120b", temperature=0.7)
-        _cached_llm_with_tools = llm.bind_tools(tools)
+        _cached_llm_with_tools = llm.bind_tools([get_search_tool()])
     return _cached_llm_with_tools
 
 def agent_node(state: State):
@@ -90,11 +98,26 @@ Remember: Be concise but thorough. Quality of information is paramount."""
     return {"messages": [response]}
 
 
+def format_search_results(result) -> str:
+    """Turns Tavily's response into compact text the LLM can read."""
+    if isinstance(result, dict):
+        if result.get("error"):
+            raise RuntimeError(result["error"])
+        items = result.get("results", [])
+        if not items:
+            return "No results found."
+        return "\n\n".join(
+            f"Title: {r.get('title', '')}\nURL: {r.get('url', '')}\nContent: {r.get('content', '')}"
+            for r in items
+        )
+    return str(result)
+
+
 def tool_node(state: State):
     """
     NODE 2: The Tool Executor
     If the agent decides it needs to search the web, LangGraph will send the state here.
-    This function actually runs the search on DuckDuckGo and returns the results.
+    This function actually runs the search on Tavily and returns the results.
     """
     messages = state["messages"]
     last_message = messages[-1] # The last message is what the AI just said
@@ -106,30 +129,32 @@ def tool_node(state: State):
     tool_messages = []
     # Loop through the tools the AI wants to run
     for tool_call in last_message.tool_calls:
-        if tool_call["name"] == "duckduckgo_search":
+        search_tool = get_search_tool()
+        if tool_call["name"] != search_tool.name:
+            content = f"Error: Unknown tool '{tool_call['name']}'."
+        else:
             query = tool_call["args"].get("query")
-            if query:
-                print(f"Executing search for: {query}")
-                # This actually searches the internet!
-                result = search_tool.invoke(query)
-
-                # We format the search result into a 'ToolMessage' so the AI knows
-                # this is the answer to its search query.
-                tool_messages.append(
-                    ToolMessage(
-                        content=result,
-                        tool_call_id=tool_call["id"],
-                        name=tool_call["name"]
-                    )
-                )
+            if not query:
+                content = "Error: No query provided for search."
             else:
-                 tool_messages.append(
-                    ToolMessage(
-                        content="Error: No query provided for search.",
-                        tool_call_id=tool_call["id"],
-                        name=tool_call["name"]
+                print(f"Executing search for: {query}")
+                try:
+                    # This actually searches the internet!
+                    content = format_search_results(search_tool.invoke({"query": query}))
+                except Exception as e:
+                    # If search fails (timeout, quota, network), don't crash the whole request.
+                    # Tell the AI what happened so it can still answer and be honest about it.
+                    print(f"Search failed: {e}")
+                    content = (
+                        f"Search failed: {e}. Answer from your own knowledge if you can, "
+                        "and clearly tell the user that live web search was unavailable."
                     )
-                )
+
+        # We format the result into a 'ToolMessage' so the AI knows
+        # this is the answer to its search query.
+        tool_messages.append(
+            ToolMessage(content=content, tool_call_id=tool_call["id"], name=tool_call["name"])
+        )
 
     return {"messages": tool_messages}
 

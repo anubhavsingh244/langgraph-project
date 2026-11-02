@@ -8,3 +8,5 @@ services:
     envVars:
       - key: GROQ_API_KEY
         sync: false # You will need to input your API key securely in the Render dashboard
+      - key: TAVILY_API_KEY
+        sync: false # Add your Tavily API key in the Render dashboard

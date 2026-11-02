@@ -3,10 +3,9 @@ uvicorn
 langchain
 langgraph
 langchain-groq
-duckduckgo-search
 pydantic
 python-dotenv
 langchain-community
 pytest
 httpx
-ddgs
+langchain-tavily
