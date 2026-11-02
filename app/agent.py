@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from typing import Annotated, TypedDict
 
 from dotenv import load_dotenv
@@ -9,21 +10,12 @@ from langchain_tavily import TavilySearch
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
+from app.logging_config import configure_logging, get_logger, safe_log_value
+
 # Load local environment before reading logging configuration or creating clients.
 load_dotenv()
-
-# LOG_LEVEL=DEBUG enables detailed flow diagnostics; INFO is the default.
-# Never log prompts, message bodies, search queries, or API credentials.
-_LOG_LEVEL_NAME = os.getenv("LOG_LEVEL", "INFO").upper()
-_LOG_LEVEL = getattr(logging, _LOG_LEVEL_NAME, logging.INFO)
-logging.basicConfig(
-    level=_LOG_LEVEL,
-    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-)
-# basicConfig is a no-op if the host (for example Uvicorn) already configured
-# handlers. Set the root level explicitly so LOG_LEVEL still works in that case.
-logging.getLogger().setLevel(_LOG_LEVEL)
-logger = logging.getLogger("langgraph.agent")
+configure_logging()
+logger = get_logger("agent")
 
 _cached_search_tool = None
 
@@ -107,8 +99,8 @@ Remember: Be concise but thorough. Quality of information is paramount."""
     for call in tool_calls:
         logger.info(
             "[LLM TOOL REQUEST] name=%s | call_id=%s",
-            call.get("name", "unknown"),
-            call.get("id", "unknown"),
+            safe_log_value(call.get("name", "unknown")),
+            safe_log_value(call.get("id", "unknown")),
         )
     return {"messages": [response]}
 
@@ -143,16 +135,18 @@ def tool_node(state: State):
     for index, tool_call in enumerate(tool_calls, start=1):
         tool_name = tool_call.get("name", "unknown")
         call_id = tool_call.get("id", "unknown")
+        safe_tool_name = safe_log_value(tool_name)
+        safe_call_id = safe_log_value(call_id)
         logger.info(
             "[TOOL START] %d/%d | name=%s | call_id=%s",
-            index, len(tool_calls), tool_name, call_id,
+            index, len(tool_calls), safe_tool_name, safe_call_id,
         )
 
         try:
             search_tool = get_search_tool()
             if tool_name != search_tool.name:
                 content = f"Error: Unknown tool '{tool_name}'."
-                logger.error("[TOOL ERROR] unknown tool requested | name=%s", tool_name)
+                logger.error("[TOOL ERROR] unknown tool requested | name=%s", safe_tool_name)
             else:
                 query = tool_call.get("args", {}).get("query")
                 if not query:
@@ -162,12 +156,16 @@ def tool_node(state: State):
                     # Log only query length; never print user/search query contents.
                     logger.info("[TAVILY SEARCH] query_chars=%d", len(query))
                     content = format_search_results(search_tool.invoke({"query": query}))
-                    logger.info("[TOOL SUCCESS] name=%s | result_chars=%d", tool_name, len(content))
+                    logger.info(
+                        "[TOOL SUCCESS] name=%s | result_chars=%d",
+                        safe_tool_name,
+                        len(content),
+                    )
         except Exception as exc:
             # Exception messages may contain request URLs or query text; log only the type.
             logger.error(
                 "[TOOL FAILURE] name=%s | error_type=%s",
-                tool_name,
+                safe_tool_name,
                 type(exc).__name__,
             )
             content = (
