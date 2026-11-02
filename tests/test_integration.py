@@ -63,6 +63,25 @@ class TestAgenticResearchAssistant(unittest.TestCase):
             if original_key is not None:
                 os.environ["GROQ_API_KEY"] = original_key
 
+    def test_research_endpoint_validation_error_is_traced(self):
+        """Invalid request bodies receive a request ID and duration before validation."""
+        with self.assertLogs("research_assistant.api", level="INFO") as captured:
+            response = client.post("/research", json={})
+
+        self.assertEqual(response.status_code, 422)
+        output = "\\n".join(captured.output)
+        self.assertIn("[REQUEST START]", output)
+        self.assertIn("[REQUEST REJECTED]", output)
+        self.assertIn("status_code=422", output)
+        self.assertIn("duration_seconds=", output)
+        request_ids = {
+            line.split("request_id=")[1].split(" | ")[0]
+            for line in captured.output
+            if "request_id=" in line
+        }
+        self.assertEqual(len(request_ids), 1)
+        self.assertEqual(len(next(iter(request_ids))), 32)
+
     def test_research_endpoint_malformed_api_key_logs_duration(self):
         """Malformed credentials also produce a duration-bearing terminal record."""
         original_key = os.environ.get("GROQ_API_KEY")
