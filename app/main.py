@@ -1,88 +1,74 @@
+import logging
 import os
+import time
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from app.agent import app_graph
 from langchain_core.messages import HumanMessage
 
-# Initialize our FastAPI application
-# This creates a web server that can listen for incoming requests over the internet.
+logger = logging.getLogger("langgraph.api")
+
 app = FastAPI(title="Agentic Research Assistant")
 
-# Pydantic is used for data validation.
-# Here we define that anyone calling our /research endpoint MUST send a JSON object
-# containing a "query" string. If they don't, FastAPI automatically rejects it!
+
 class ResearchRequest(BaseModel):
     query: str
 
 
-# --------------------------------------------------------------------------
-# API ENDPOINTS
-# --------------------------------------------------------------------------
-
 @app.get("/healthz")
 async def health_check():
-    """
-    Health Check Endpoint.
-    Render will ping this URL to make sure the server is awake and healthy.
-    """
+    logger.debug("Health check requested")
     return {"status": "healthy"}
 
-# @app.post tells FastAPI: "If someone sends a POST request to '/research', run this function"
+
 @app.post("/research")
 def run_research(request: ResearchRequest):
-    """
-    Endpoint to trigger the LangGraph agent with a user's query.
-    This function is intentionally synchronous (`def` instead of `async def`) so that FastAPI
-    runs it in a background threadpool. This ensures that the blocking network calls
-    from LangGraph don't freeze the main event loop!
-    """
-    # 1. Security Check: Ensure the API key exists and is valid.
+    """Run the LangGraph agent and log a high-level request timeline."""
+    request_started = time.perf_counter()
+    query_preview = request.query[:120].replace("\n", " ")
+    logger.info(
+        "[REQUEST START] /research | query_chars=%d | preview=%r",
+        len(request.query),
+        query_preview,
+    )
+
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
-         return {"error": "Groq API key is not set. Please set the GROQ_API_KEY environment variable."}
+        logger.error("[REQUEST REJECTED] GROQ_API_KEY is missing")
+        return {"error": "Groq API key is not set. Please set the GROQ_API_KEY environment variable."}
     if not api_key.startswith("gsk_"):
-         return {"error": "Invalid Groq API key format. It must start with 'gsk_'."}
+        logger.error("[REQUEST REJECTED] GROQ_API_KEY has an invalid format")
+        return {"error": "Invalid Groq API key format. It must start with 'gsk_'."}
 
-    # 2. Setup the Initial State for LangGraph
-    # We create a dictionary matching our State definition in agent.py,
-    # and put the user's query in as a 'HumanMessage'
     initial_state = {"messages": [HumanMessage(content=request.query)]}
 
     try:
-        # 3. RUN THE AI GRAPH
-        # app_graph.invoke() starts the loop we defined in agent.py.
-        # It will run agent -> tools -> agent -> tools until the agent decides it is done.
-        result_state = app_graph.invoke(initial_state)
+        logger.info("[GRAPH START] app_graph.invoke")
+        result_state = app_graph.invoke(initial_state, config={"recursion_limit": 25})
+        logger.info("[GRAPH END] app_graph.invoke | messages=%d", len(result_state.get("messages", [])))
 
-        # 4. Extract the final answer
-        # The result state contains the entire conversation history.
-        # The very last message in the list is the AI's final answer.
         final_message = result_state["messages"][-1]
-
-        # 5. Extract the "Thought Process" for educational purposes
-        # We loop through all the messages to show the user exactly what tools the AI used.
         interaction_log = []
         for msg in result_state["messages"]:
             interaction_log.append({
-                "type": msg.__class__.__name__, # E.g., 'HumanMessage', 'AIMessage', 'ToolMessage'
+                "type": msg.__class__.__name__,
                 "content": msg.content,
-                "tool_calls": getattr(msg, "tool_calls", None)
+                "tool_calls": getattr(msg, "tool_calls", None),
             })
 
-        # Return a JSON response containing both the final answer and the thought process log
-        return {
-            "answer": final_message.content,
-            "log": interaction_log
-        }
-    except Exception as e:
-        # If anything crashes, catch the error and send it back to the frontend safely
-        return {"error": str(e)}
+        elapsed = time.perf_counter() - request_started
+        logger.info(
+            "[REQUEST SUCCESS] /research | duration_seconds=%.2f | log_entries=%d",
+            elapsed,
+            len(interaction_log),
+        )
+        return {"answer": final_message.content, "log": interaction_log}
+    except Exception:
+        elapsed = time.perf_counter() - request_started
+        logger.exception("[REQUEST FAILED] /research | duration_seconds=%.2f", elapsed)
+        return {"error": "The research request failed. Check the server logs for the traceback and failing graph step."}
 
 
-# --------------------------------------------------------------------------
-# STATIC FILES (FRONTEND)
-# --------------------------------------------------------------------------
-# This tells FastAPI: "For any request that doesn't match the endpoints above (like going to '/'),
-# look inside the 'static' folder and serve the files there (like our index.html)."
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
