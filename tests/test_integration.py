@@ -69,3 +69,49 @@ class TestAgenticResearchAssistant(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+    def test_research_endpoint_logs_flow_without_query_text(self):
+        """Execution logs should show request flow without exposing user input."""
+        secret_query = "private-query-do-not-log"
+        mock_message = AIMessage(content="A safe answer.")
+        with patch("app.main.app_graph") as mock_graph:
+            mock_graph.invoke.return_value = {"messages": [mock_message]}
+            with self.assertLogs("langgraph.api", level="INFO") as captured:
+                response = client.post("/research", json={"query": secret_query})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["answer"], "A safe answer.")
+        log_output = "\n".join(captured.output)
+        self.assertIn("[REQUEST START]", log_output)
+        self.assertIn("[GRAPH START]", log_output)
+        self.assertIn("[REQUEST SUCCESS]", log_output)
+        self.assertNotIn(secret_query, log_output)
+
+    def test_research_endpoint_returns_error_when_graph_fails(self):
+        """A graph exception should be returned without breaking the error handler."""
+        with patch("app.main.app_graph") as mock_graph:
+            mock_graph.invoke.side_effect = RuntimeError("simulated graph failure")
+            response = client.post("/research", json={"query": "test failure path"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"error": "simulated graph failure"})
+
+    def test_graph_router_selects_tools_or_end(self):
+        """The conditional edge should preserve the existing tool/final-answer flow."""
+        from app.agent import should_continue
+
+        tool_request = AIMessage(
+            content="",
+            tool_calls=[{
+                "name": "tavily_search",
+                "args": {"query": "example"},
+                "id": "call-1",
+                "type": "tool_call",
+            }],
+        )
+        final_answer = AIMessage(content="Done.")
+
+        self.assertEqual(should_continue({"messages": [tool_request]}), "tools")
+        self.assertEqual(should_continue({"messages": [final_answer]}), "end")
+        self.assertEqual(should_continue({"messages": []}), "end")
