@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic Research Assistant</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f7f6;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 50px auto;
+            background: #fff;
+            padding: 20px 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #4CAF50;
+        }
+        .search-container {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px 0 0 4px;
+            font-size: 16px;
+        }
+        button {
+            padding: 12px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 0 4px 4px 0;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .loading {
+            text-align: center;
+            display: none;
+            font-style: italic;
+            color: #666;
+        }
+        .log-section {
+            margin-top: 20px;
+            background: #f9f9f9;
+            padding: 15px;
+            border-left: 4px solid #4CAF50;
+            display: none;
+        }
+        .log-entry {
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .log-type {
+            font-weight: bold;
+            color: #555;
+            font-size: 0.9em;
+            text-transform: uppercase;
+        }
+        .answer-section {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #e8f5e9;
+            border-radius: 4px;
+            display: none;
+        }
+        .error {
+            color: red;
+            margin-top: 10px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Agentic Research Assistant</h1>
+    <p style="text-align: center;">Ask me anything, and I'll search the web to compile a comprehensive answer.</p>
+
+    <div class="search-container">
+        <input type="text" id="queryInput" placeholder="E.g., What are the latest advancements in quantum computing?" onkeypress="handleKeyPress(event)">
+        <button onclick="runResearch()">Research</button>
+    </div>
+
+    <div class="loading" id="loadingIndicator">
+        Agent is thinking and researching... please wait.
+    </div>
+
+    <div class="error" id="errorDiv"></div>
+
+    <div class="answer-section" id="answerSection">
+        <h3>Final Answer:</h3>
+        <div id="finalAnswer"></div>
+    </div>
+
+    <div class="log-section" id="logSection">
+        <h3>Behind the Scenes (LangGraph Workflow):</h3>
+        <div id="logContainer"></div>
+    </div>
+</div>
+
+<script>
+    async function runResearch() {
+        const query = document.getElementById("queryInput").value.trim();
+        if (!query) return;
+
+        // Reset UI
+        document.getElementById("loadingIndicator").style.display = "block";
+        document.getElementById("errorDiv").style.display = "none";
+        document.getElementById("answerSection").style.display = "none";
+        document.getElementById("logSection").style.display = "none";
+        document.getElementById("logContainer").innerHTML = "";
+
+        try {
+            const response = await fetch('/research', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ query: query })
+            });
+
+            const data = await response.json();
+
+            if (data.error) {
+                showError(data.error);
+                return;
+            }
+
+            // Show answer
+            document.getElementById("finalAnswer").innerHTML = data.answer.replace(/\n/g, '<br>');
+            document.getElementById("answerSection").style.display = "block";
+
+            // Show logs
+            const logContainer = document.getElementById("logContainer");
+            data.log.forEach(entry => {
+                const div = document.createElement("div");
+                div.className = "log-entry";
+
+                let content = entry.content || "";
+
+                // If it's an AI message with tool calls, show what it's searching for
+                if (entry.type === "AIMessage" && entry.tool_calls && entry.tool_calls.length > 0) {
+                    content = `<i>Decided to use tool: <b>${entry.tool_calls[0].name}</b> with arguments ${JSON.stringify(entry.tool_calls[0].args)}</i>`;
+                }
+
+                div.innerHTML = `<div class="log-type">${entry.type}</div><div>${content.replace(/\n/g, '<br>')}</div>`;
+                logContainer.appendChild(div);
+            });
+            document.getElementById("logSection").style.display = "block";
+
+        } catch (err) {
+            showError("An error occurred while connecting to the server.");
+        } finally {
+            document.getElementById("loadingIndicator").style.display = "none";
+        }
+    }
+
+    function showError(message) {
+        const errorDiv = document.getElementById("errorDiv");
+        errorDiv.textContent = message;
+        errorDiv.style.display = "block";
+    }
+
+    function handleKeyPress(e) {
+        if (e.key === 'Enter') {
+            runResearch();
+        }
+    }
+</script>
+
+</body>
+</html>
