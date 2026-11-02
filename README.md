@@ -90,7 +90,7 @@ LOG_LEVEL=DEBUG uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 A typical search request produces a trace similar to this (timestamps and request IDs abbreviated for readability):
 
 ```text
-2026-11-03 10:00:00 | INFO | research_assistant.api | request_id=abc... | [REQUEST START] /research | query_chars=24
+2026-11-03 10:00:00 | INFO | research_assistant.api | request_id=abc... | [REQUEST START] /research
 2026-11-03 10:00:00 | INFO | research_assistant.api | request_id=abc... | [GRAPH START] app_graph.invoke
 2026-11-03 10:00:00 | INFO | research_assistant.agent | request_id=abc... | [NODE ENTER] agent | messages=1
 2026-11-03 10:00:01 | INFO | research_assistant.agent | request_id=abc... | [NODE EXIT] agent | response_type=AIMessage | tool_calls=1
