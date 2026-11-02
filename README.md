@@ -1,6 +1,6 @@
 # Agentic Research Assistant
 
-A learning-based end-to-end project demonstrating the power of **FastAPI**, **LangChain**, and **LangGraph**. It acts as an autonomous AI assistant that takes user queries, decides if it needs to search the web for more context, retrieves the data using DuckDuckGo, and returns a comprehensive answer along with its internal thought process.
+A learning-based end-to-end project demonstrating the power of **FastAPI**, **LangChain**, and **LangGraph**. It acts as an autonomous AI assistant that takes user queries, decides if it needs to search the web for more context, retrieves the data using Tavily search, and returns a comprehensive answer along with its internal thought process.
 
 ## 🚀 Features
 - **FastAPI Backend**: Provides an efficient, asynchronous REST API.
@@ -31,7 +31,13 @@ For security, **never hardcode your API key**.
 GROQ_API_KEY=gsk_your_actual_key_here
 ```
 
-### 4. Run the Server
+### 4. Get a Tavily Search Key
+The agent searches the web through [Tavily](https://app.tavily.com) (free tier available). Create a key and add it to your `.env` file:
+```
+TAVILY_API_KEY=tvly-your_actual_key_here
+```
+
+### 5. Run the Server
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
@@ -61,5 +67,5 @@ This project is configured to be easily deployed for free on [Render](https://re
 2. Log into Render and click **New > Web Service**.
 3. Connect your GitHub repository.
 4. Render will automatically detect the configuration from the included `render.yaml` file.
-5. **Crucial Step:** When prompted in the Render dashboard, go to the **Environment** tab and add your `GROQ_API_KEY`. This keeps it securely stored in Render's servers rather than public on GitHub.
+5. **Crucial Step:** When prompted in the Render dashboard, go to the **Environment** tab and add your `GROQ_API_KEY` and `TAVILY_API_KEY`. This keeps it securely stored in Render's servers rather than public on GitHub.
 6. Click **Deploy**!
