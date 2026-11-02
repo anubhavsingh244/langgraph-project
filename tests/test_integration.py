@@ -140,7 +140,7 @@ class TestAgenticResearchAssistant(unittest.TestCase):
         self.assertEqual(len(result["messages"]), 1)
         self.assertEqual(result["messages"][0].tool_call_id, "call-2")
         fake_tool.invoke.assert_called_once_with({"query": private_query})
-        log_output = "\\n".join(captured.output)
+        log_output = "\n".join(captured.output)
         self.assertIn("[TAVILY SEARCH]", log_output)
         self.assertNotIn(private_query, log_output)
 
