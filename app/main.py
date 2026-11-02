@@ -44,16 +44,22 @@ def run_research(request: ResearchRequest):
     if not api_key.startswith("gsk_"):
          return {"error": "Invalid Groq API key format. It must start with 'gsk_'."}
 
+    print(f"\n=======================================================")
+    print(f"[DEBUG] NEW REQUEST RECEIVED: '{request.query}'")
+    print(f"=======================================================\n")
+
     # 2. Setup the Initial State for LangGraph
     # We create a dictionary matching our State definition in agent.py,
     # and put the user's query in as a 'HumanMessage'
     initial_state = {"messages": [HumanMessage(content=request.query)]}
 
     try:
+        print("[DEBUG] Invoking LangGraph workflow...")
         # 3. RUN THE AI GRAPH
         # app_graph.invoke() starts the loop we defined in agent.py.
         # It will run agent -> tools -> agent -> tools until the agent decides it is done.
         result_state = app_graph.invoke(initial_state)
+        print("[DEBUG] LangGraph workflow complete!")
 
         # 4. Extract the final answer
         # The result state contains the entire conversation history.

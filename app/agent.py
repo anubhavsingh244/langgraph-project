@@ -59,6 +59,9 @@ def agent_node(state: State):
     This function looks at the conversation history and decides what to do next.
     It might generate a final answer, or it might decide to use the search tool.
     """
+    print("\n--- [DEBUG] ENTERING AGENT NODE ---")
+    print(f"Current conversation length: {len(state['messages'])} messages")
+
     llm_with_tools = get_llm_with_tools()
 
     messages = state["messages"]
@@ -84,7 +87,15 @@ Remember: Be concise but thorough. Quality of information is paramount."""
         call_messages = [sys_msg] + messages
 
     # Send the messages to the AI and wait for its response
+    print("Agent is thinking...")
     response = llm_with_tools.invoke(call_messages)
+
+    if hasattr(response, "tool_calls") and response.tool_calls:
+        print(f"Agent decided to use tools: {[t['name'] for t in response.tool_calls]}")
+    else:
+        print("Agent generated a final text response.")
+
+    print("--- [DEBUG] LEAVING AGENT NODE ---\n")
 
     # Return the AI's response so LangGraph can add it to the state (conversation history)
     return {"messages": [response]}
@@ -96,6 +107,7 @@ def tool_node(state: State):
     If the agent decides it needs to search the web, LangGraph will send the state here.
     This function actually runs the search on DuckDuckGo and returns the results.
     """
+    print("\n--- [DEBUG] ENTERING TOOL NODE ---")
     messages = state["messages"]
     last_message = messages[-1] # The last message is what the AI just said
 
@@ -109,9 +121,10 @@ def tool_node(state: State):
         if tool_call["name"] == "duckduckgo_search":
             query = tool_call["args"].get("query")
             if query:
-                print(f"Executing search for: {query}")
+                print(f"[DEBUG] Executing DuckDuckGo search for: '{query}'")
                 # This actually searches the internet!
                 result = search_tool.invoke(query)
+                print(f"[DEBUG] Search complete. Retrieved {len(str(result))} characters of text.")
 
                 # We format the search result into a 'ToolMessage' so the AI knows
                 # this is the answer to its search query.
@@ -123,6 +136,7 @@ def tool_node(state: State):
                     )
                 )
             else:
+                 print("[DEBUG] Agent requested a search but provided no query string.")
                  tool_messages.append(
                     ToolMessage(
                         content="Error: No query provided for search.",
@@ -131,6 +145,7 @@ def tool_node(state: State):
                     )
                 )
 
+    print("--- [DEBUG] LEAVING TOOL NODE ---\n")
     return {"messages": tool_messages}
 
 
@@ -146,10 +161,13 @@ def should_continue(state: State) -> str:
     messages = state["messages"]
     last_message = messages[-1]
 
+    print("--- [DEBUG] ROUTER ---")
     # If the AI's last message contains a request to use a tool, route to "tools"
     if getattr(last_message, "tool_calls", None):
+        print("Decision: Routing to TOOLS")
         return "tools"
     # Otherwise, the AI gave a final answer, so we route to "end"
+    print("Decision: Routing to END")
     return "end"
 
 
