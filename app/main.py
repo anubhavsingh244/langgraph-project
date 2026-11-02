@@ -41,7 +41,7 @@ def run_research(request: ResearchRequest):
 
     try:
         logger.info("[GRAPH START] app_graph.invoke")
-        result_state = app_graph.invoke(initial_state, config={"recursion_limit": 25})
+        result_state = app_graph.invoke(initial_state)
         logger.info("[GRAPH END] app_graph.invoke | messages=%d", len(result_state.get("messages", [])))
 
         final_message = result_state["messages"][-1]
@@ -63,7 +63,7 @@ def run_research(request: ResearchRequest):
     except Exception:
         elapsed = time.perf_counter() - request_started
         logger.exception("[REQUEST FAILED] /research | duration_seconds=%.2f", elapsed)
-        return {"error": "The research request failed. Check the server logs for the traceback and failing graph step."}
+        return {"error": str(e)}
 
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
