@@ -69,3 +69,41 @@ This project is configured to be easily deployed for free on [Render](https://re
 4. Render will automatically detect the configuration from the included `render.yaml` file.
 5. **Crucial Step:** When prompted in the Render dashboard, go to the **Environment** tab and add your `GROQ_API_KEY` and `TAVILY_API_KEY`. This keeps it securely stored in Render's servers rather than public on GitHub.
 6. Click **Deploy**!
+
+
+## 🔍 Debugging the LangGraph Flow
+
+The backend writes timestamped execution traces to the server console. The default `INFO` level shows request start/end, node entry/exit, routing decisions, and tool execution. Set `LOG_LEVEL=DEBUG` for additional initialization and LLM diagnostics.
+
+**PowerShell (Windows):**
+```powershell
+$env:LOG_LEVEL = "DEBUG"
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+**macOS / Linux:**
+```bash
+LOG_LEVEL=DEBUG uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+A typical request that performs a search produces a trace resembling:
+
+```text
+[REQUEST START] request_id=...
+[GRAPH START]
+[NODE ENTER] agent
+[NODE EXIT] agent | tool_calls=1
+[ROUTE] agent -> tools
+[NODE ENTER] tools
+[TOOL START] name=tavily_search
+[TAVILY SEARCH] query_chars=...
+[TOOL SUCCESS]
+[NODE EXIT] tools
+[NODE ENTER] agent
+[NODE EXIT] agent | tool_calls=0
+[ROUTE] agent -> END
+[GRAPH END]
+[REQUEST SUCCESS]
+```
+
+Logs intentionally omit user queries, prompts, message bodies, and API keys. To change verbosity on Render, add `LOG_LEVEL=DEBUG` under the service's environment variables; use `INFO` for the normal production trace.
