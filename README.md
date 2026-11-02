@@ -70,10 +70,11 @@ This project is configured to be easily deployed for free on [Render](https://re
 5. **Crucial Step:** When prompted in the Render dashboard, go to the **Environment** tab and add your `GROQ_API_KEY` and `TAVILY_API_KEY`. This keeps it securely stored in Render's servers rather than public on GitHub.
 6. Click **Deploy**!
 
-
 ## 🔍 Debugging the LangGraph Flow
 
-The backend writes timestamped execution traces to the server console. The default `INFO` level shows request start/end, node entry/exit, routing decisions, and tool execution. Set `LOG_LEVEL=DEBUG` for additional initialization and LLM diagnostics.
+The backend uses a dedicated `research_assistant.*` logger namespace. This means `LOG_LEVEL=DEBUG` enables detailed logs from this application without lowering the root logger's level or enabling DEBUG output from Uvicorn, Groq, HTTP clients, or other dependencies.
+
+The default `INFO` level shows request start/end, node entry/exit, routing decisions, and tool execution. `DEBUG` adds application initialization and LLM-invocation metadata. Logs include a full request ID so API, node, routing, and tool events can be correlated. User queries, prompts, message bodies, and API keys are intentionally excluded from application logs.
 
 **PowerShell (Windows):**
 ```powershell
@@ -86,24 +87,21 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 LOG_LEVEL=DEBUG uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-A typical request that performs a search produces a trace resembling:
+A typical search request produces a trace similar to this (timestamps and request IDs abbreviated for readability):
 
 ```text
-[REQUEST START] request_id=...
-[GRAPH START]
-[NODE ENTER] agent
-[NODE EXIT] agent | tool_calls=1
-[ROUTE] agent -> tools
-[NODE ENTER] tools
-[TOOL START] name=tavily_search
-[TAVILY SEARCH] query_chars=...
-[TOOL SUCCESS]
-[NODE EXIT] tools
-[NODE ENTER] agent
-[NODE EXIT] agent | tool_calls=0
-[ROUTE] agent -> END
-[GRAPH END]
-[REQUEST SUCCESS]
+2026-11-03 10:00:00 | INFO | research_assistant.api | request_id=abc... | [REQUEST START] /research | query_chars=24
+2026-11-03 10:00:00 | INFO | research_assistant.api | request_id=abc... | [GRAPH START] app_graph.invoke
+2026-11-03 10:00:00 | INFO | research_assistant.agent | request_id=abc... | [NODE ENTER] agent | messages=1
+2026-11-03 10:00:01 | INFO | research_assistant.agent | request_id=abc... | [NODE EXIT] agent | response_type=AIMessage | tool_calls=1
+2026-11-03 10:00:01 | INFO | research_assistant.agent | request_id=abc... | [ROUTE] agent -> tools | tool_calls=1
+2026-11-03 10:00:01 | INFO | research_assistant.agent | request_id=abc... | [NODE ENTER] tools | pending_tool_calls=1
+2026-11-03 10:00:01 | INFO | research_assistant.agent | request_id=abc... | [TOOL START] 1/1 | name=tavily_search | call_id=call-...
+2026-11-03 10:00:01 | INFO | research_assistant.agent | request_id=abc... | [TAVILY SEARCH] query_chars=24
+2026-11-03 10:00:02 | INFO | research_assistant.agent | request_id=abc... | [TOOL SUCCESS] name=tavily_search | result_chars=350
+2026-11-03 10:00:02 | INFO | research_assistant.agent | request_id=abc... | [NODE EXIT] tools | tool_messages=1
+2026-11-03 10:00:03 | INFO | research_assistant.api | request_id=abc... | [GRAPH END] messages=4
+2026-11-03 10:00:03 | INFO | research_assistant.api | request_id=abc... | [REQUEST SUCCESS] duration_seconds=3.12 | log_entries=4
 ```
 
-Logs intentionally omit user queries, prompts, message bodies, and API keys. To change verbosity on Render, add `LOG_LEVEL=DEBUG` under the service's environment variables; use `INFO` for the normal production trace.
+Supported levels are `DEBUG`, `INFO`, `WARNING`, `ERROR`, and `CRITICAL`. An unrecognized value safely falls back to `INFO`. To change verbosity on Render, add `LOG_LEVEL=DEBUG` under the service's environment variables; use `INFO` for the normal production trace.
