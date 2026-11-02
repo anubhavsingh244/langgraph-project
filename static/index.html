@@ -4,85 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agentic Research Assistant</title>
+    <!-- Basic CSS to make our app look clean and modern -->
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f4f7f6;
-            color: #333;
-        }
-        .container {
-            max-width: 800px;
-            margin: 50px auto;
-            background: #fff;
-            padding: 20px 30px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-        h1 {
-            text-align: center;
-            color: #4CAF50;
-        }
-        .search-container {
-            display: flex;
-            margin-bottom: 20px;
-        }
-        input[type="text"] {
-            flex: 1;
-            padding: 12px;
-            border: 1px solid #ddd;
-            border-radius: 4px 0 0 4px;
-            font-size: 16px;
-        }
-        button {
-            padding: 12px 20px;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 0 4px 4px 0;
-            cursor: pointer;
-            font-size: 16px;
-        }
-        button:hover {
-            background-color: #45a049;
-        }
-        .loading {
-            text-align: center;
-            display: none;
-            font-style: italic;
-            color: #666;
-        }
-        .log-section {
-            margin-top: 20px;
-            background: #f9f9f9;
-            padding: 15px;
-            border-left: 4px solid #4CAF50;
-            display: none;
-        }
-        .log-entry {
-            margin-bottom: 10px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #eee;
-        }
-        .log-type {
-            font-weight: bold;
-            color: #555;
-            font-size: 0.9em;
-            text-transform: uppercase;
-        }
-        .answer-section {
-            margin-top: 20px;
-            padding: 20px;
-            background-color: #e8f5e9;
-            border-radius: 4px;
-            display: none;
-        }
-        .error {
-            color: red;
-            margin-top: 10px;
-            display: none;
-        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f7f6; color: #333; }
+        .container { max-width: 800px; margin: 50px auto; background: #fff; padding: 20px 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #4CAF50; }
+        .search-container { display: flex; margin-bottom: 20px; }
+        input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 4px 0 0 4px; font-size: 16px; }
+        button { padding: 12px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 0 4px 4px 0; cursor: pointer; font-size: 16px; }
+        button:hover { background-color: #45a049; }
+        .loading { text-align: center; display: none; font-style: italic; color: #666; }
+        .log-section { margin-top: 20px; background: #f9f9f9; padding: 15px; border-left: 4px solid #4CAF50; display: none; }
+        .log-entry { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+        .log-type { font-weight: bold; color: #555; font-size: 0.9em; text-transform: uppercase; }
+        .answer-section { margin-top: 20px; padding: 20px; background-color: #e8f5e9; border-radius: 4px; display: none; }
+        .error { color: red; margin-top: 10px; display: none; }
     </style>
 </head>
 <body>
@@ -91,15 +27,16 @@
     <h1>Agentic Research Assistant</h1>
     <p style="text-align: center;">Ask me anything, and I'll search the web to compile a comprehensive answer.</p>
 
+    <!-- Input Box -->
     <div class="search-container">
+        <!-- onkeypress listens for the Enter key -->
         <input type="text" id="queryInput" placeholder="E.g., What are the latest advancements in quantum computing?" onkeypress="handleKeyPress(event)">
+        <!-- onclick triggers our JavaScript function when the button is clicked -->
         <button onclick="runResearch()">Research</button>
     </div>
 
-    <div class="loading" id="loadingIndicator">
-        Agent is thinking and researching... please wait.
-    </div>
-
+    <!-- Hidden elements that we will reveal using JavaScript later -->
+    <div class="loading" id="loadingIndicator">Agent is thinking and researching... please wait.</div>
     <div class="error" id="errorDiv"></div>
 
     <div class="answer-section" id="answerSection">
@@ -113,12 +50,18 @@
     </div>
 </div>
 
+<!--
+JAVASCRIPT SECTION
+This is the logic of our webpage. It takes user input, sends it to our FastAPI backend,
+and updates the webpage with the results.
+-->
 <script>
+    // 'async' function because we have to wait for the backend to process the AI response
     async function runResearch() {
         const query = document.getElementById("queryInput").value.trim();
-        if (!query) return;
+        if (!query) return; // Do nothing if the box is empty
 
-        // Reset UI
+        // 1. Reset the UI (hide old answers, show loading text)
         document.getElementById("loadingIndicator").style.display = "block";
         document.getElementById("errorDiv").style.display = "none";
         document.getElementById("answerSection").style.display = "none";
@@ -126,34 +69,41 @@
         document.getElementById("logContainer").innerHTML = "";
 
         try {
+            // 2. Make an HTTP request to our FastAPI backend!
+            // We use fetch() to send a POST request to the '/research' endpoint we created in main.py
             const response = await fetch('/research', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json' // Tell FastAPI we are sending JSON data
                 },
+                // We convert our JavaScript object into a JSON string to send over the internet
                 body: JSON.stringify({ query: query })
             });
 
+            // 3. Wait for the server to reply and parse the JSON data it sends back
             const data = await response.json();
 
+            // 4. Handle Errors (e.g. if the API key is missing)
             if (data.error) {
                 showError(data.error);
                 return;
             }
 
-            // Show answer
+            // 5. Update the page with the Final Answer
+            // We use regex (/\n/g) to replace newline characters from the AI with HTML <br> tags
             document.getElementById("finalAnswer").innerHTML = data.answer.replace(/\n/g, '<br>');
             document.getElementById("answerSection").style.display = "block";
 
-            // Show logs
+            // 6. Update the page with the "Thought Process" Log
             const logContainer = document.getElementById("logContainer");
+            // Loop through the log array sent by FastAPI
             data.log.forEach(entry => {
                 const div = document.createElement("div");
                 div.className = "log-entry";
 
                 let content = entry.content || "";
 
-                // If it's an AI message with tool calls, show what it's searching for
+                // If the AI decided to use a tool, format it nicely so the user can read it
                 if (entry.type === "AIMessage" && entry.tool_calls && entry.tool_calls.length > 0) {
                     content = `<i>Decided to use tool: <b>${entry.tool_calls[0].name}</b> with arguments ${JSON.stringify(entry.tool_calls[0].args)}</i>`;
                 }
@@ -161,21 +111,26 @@
                 div.innerHTML = `<div class="log-type">${entry.type}</div><div>${content.replace(/\n/g, '<br>')}</div>`;
                 logContainer.appendChild(div);
             });
+            // Reveal the log section
             document.getElementById("logSection").style.display = "block";
 
         } catch (err) {
+            // Catch network errors (like if the FastAPI server is turned off)
             showError("An error occurred while connecting to the server.");
         } finally {
+            // Hide the loading text no matter what happens
             document.getElementById("loadingIndicator").style.display = "none";
         }
     }
 
+    // Helper function to easily show error messages
     function showError(message) {
         const errorDiv = document.getElementById("errorDiv");
         errorDiv.textContent = message;
         errorDiv.style.display = "block";
     }
 
+    // Helper function so users can press 'Enter' instead of clicking the button
     function handleKeyPress(e) {
         if (e.key === 'Enter') {
             runResearch();

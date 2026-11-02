@@ -9,34 +9,53 @@ from langchain_community.tools import DuckDuckGoSearchRun
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 
-# Load environment variables
+# --------------------------------------------------------------------------
+# 1. SETUP & CONFIGURATION
+# --------------------------------------------------------------------------
+# load_dotenv() reads the .env file in your folder and loads variables like GROQ_API_KEY
+# securely into the environment so we don't have to hardcode them.
 load_dotenv()
 
-# Define the state. We'll just use messages for now.
-class State(TypedDict):
-    messages: Annotated[list[BaseMessage], add_messages]
-
-# Initialize the Groq model.
-# Make sure to set GROQ_API_KEY in your .env file or environment variables.
-# We're using a common, fast model available on the free tier.
+# Initialize the Groq Large Language Model (LLM).
+# Think of this as the "brain" of our agent. We are using 'llama-3.1-8b-instant'
+# because it is very fast and available on the free tier.
 llm = ChatGroq(
     model_name="llama-3.1-8b-instant",
-    temperature=0.7,
+    temperature=0.7, # 0.0 is very strict, 1.0 is very creative. 0.7 is a good middle ground.
 )
 
-# Initialize the search tool
+# Initialize the tool our agent will use. DuckDuckGoSearchRun allows the AI to search the web!
 search_tool = DuckDuckGoSearchRun()
 
-# Bind the tool to the LLM
+# We need to tell the LLM that it has permission to use this tool.
+# bind_tools() gives the AI a "manual" on how and when to use the search tool.
 tools = [search_tool]
 llm_with_tools = llm.bind_tools(tools)
 
-# Define the agent nodes
+
+# --------------------------------------------------------------------------
+# 2. STATE DEFINITION
+# --------------------------------------------------------------------------
+# LangGraph apps are "Stateful". This means they keep track of data as they run.
+# Here, our state is simply a list of messages (the conversation history).
+# The `add_messages` function tells LangGraph: "when new messages come in, append them to the list, don't overwrite it."
+class State(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]
+
+
+# --------------------------------------------------------------------------
+# 3. NODES (The actors in our graph)
+# --------------------------------------------------------------------------
+
 def agent_node(state: State):
-    """The main agent that thinks and decides what to do."""
+    """
+    NODE 1: The Agent
+    This function looks at the conversation history and decides what to do next.
+    It might generate a final answer, or it might decide to use the search tool.
+    """
     messages = state["messages"]
 
-    # If the first message isn't a SystemMessage, add our engineered prompt for context.
+    # Prompt Engineering: We give the AI a "persona" and strict rules to follow.
     prompt_text = """You are an elite, highly intelligent Research Assistant.
 Your goal is to provide comprehensive, accurate, and incredibly well-structured answers to user queries.
 
@@ -50,33 +69,44 @@ Remember: Be concise but thorough. Quality of information is paramount."""
 
     sys_msg = SystemMessage(content=prompt_text)
 
-    # Check if there's already a system message, if not, prepend it for the LLM call
+    # We silently add our secret instructions to the very beginning of the message list
+    # before we send it to the AI.
     call_messages = messages
     if not any(isinstance(m, SystemMessage) for m in messages):
         call_messages = [sys_msg] + messages
 
+    # Send the messages to the AI and wait for its response
     response = llm_with_tools.invoke(call_messages)
 
-    # Return the response as a new message to add to the state
+    # Return the AI's response so LangGraph can add it to the state (conversation history)
     return {"messages": [response]}
 
 
 def tool_node(state: State):
-    """Executes the tool requested by the agent."""
+    """
+    NODE 2: The Tool Executor
+    If the agent decides it needs to search the web, LangGraph will send the state here.
+    This function actually runs the search on DuckDuckGo and returns the results.
+    """
     messages = state["messages"]
-    last_message = messages[-1]
+    last_message = messages[-1] # The last message is what the AI just said
 
-    # Ensure the last message has tool calls
+    # Double check if the AI actually asked to use a tool
     if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
         return {"messages": []}
 
     tool_messages = []
+    # Loop through the tools the AI wants to run
     for tool_call in last_message.tool_calls:
         if tool_call["name"] == "duckduckgo_search":
             query = tool_call["args"].get("query")
             if query:
                 print(f"Executing search for: {query}")
+                # This actually searches the internet!
                 result = search_tool.invoke(query)
+
+                # We format the search result into a 'ToolMessage' so the AI knows
+                # this is the answer to its search query.
                 tool_messages.append(
                     ToolMessage(
                         content=result,
@@ -95,39 +125,53 @@ def tool_node(state: State):
 
     return {"messages": tool_messages}
 
+
+# --------------------------------------------------------------------------
+# 4. CONDITIONAL ROUTING (The logic of the graph)
+# --------------------------------------------------------------------------
+
 def should_continue(state: State) -> str:
-    """Decides if the agent should use a tool or finish."""
+    """
+    This is a routing function. After the agent speaks, we use this to decide:
+    Does the conversation go to the 'tools' node, or is it 'end' finished?
+    """
     messages = state["messages"]
     last_message = messages[-1]
 
-    # If there is a tool call, route to tools
+    # If the AI's last message contains a request to use a tool, route to "tools"
     if getattr(last_message, "tool_calls", None):
         return "tools"
-    # Otherwise, finish
+    # Otherwise, the AI gave a final answer, so we route to "end"
     return "end"
 
-# Build the Graph
+
+# --------------------------------------------------------------------------
+# 5. BUILDING THE GRAPH (Putting it all together)
+# --------------------------------------------------------------------------
+
+# Create the graph blueprint, telling it to use our State definition
 workflow = StateGraph(State)
 
-# Add nodes
+# Add our two actors (nodes) to the graph
 workflow.add_node("agent", agent_node)
 workflow.add_node("tools", tool_node)
 
-# Set the entry point
+# When the graph starts, it should ALWAYS start at the agent node
 workflow.set_entry_point("agent")
 
-# Add conditional edges from the agent
+# After the agent node finishes, use our 'should_continue' logic to decide what happens next
 workflow.add_conditional_edges(
     "agent",
     should_continue,
     {
-        "tools": "tools",
-        "end": END
+        "tools": "tools", # If should_continue returns "tools", go to the tools node
+        "end": END        # If it returns "end", finish the execution
     }
 )
 
-# Add edge from tools back to the agent
+# If we went to the tools node, ALWAYS go back to the agent afterwards
+# so the agent can read the search results!
 workflow.add_edge("tools", "agent")
 
-# Compile the graph
+# Compile the graph into a runnable application
 app_graph = workflow.compile()

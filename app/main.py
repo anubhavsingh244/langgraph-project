@@ -5,45 +5,72 @@ from pydantic import BaseModel
 from app.agent import app_graph
 from langchain_core.messages import HumanMessage
 
+# Initialize our FastAPI application
+# This creates a web server that can listen for incoming requests over the internet.
 app = FastAPI(title="Agentic Research Assistant")
 
+# Pydantic is used for data validation.
+# Here we define that anyone calling our /research endpoint MUST send a JSON object
+# containing a "query" string. If they don't, FastAPI automatically rejects it!
 class ResearchRequest(BaseModel):
     query: str
 
+
+# --------------------------------------------------------------------------
+# API ENDPOINTS
+# --------------------------------------------------------------------------
+
+# @app.post tells FastAPI: "If someone sends a POST request to '/research', run this function"
 @app.post("/research")
 async def run_research(request: ResearchRequest):
     """
-    Endpoint to trigger the LangGraph agent with a query.
+    Endpoint to trigger the LangGraph agent with a user's query.
+    'async' is used because talking to an AI over the internet takes time,
+    and we don't want to freeze the whole server while waiting!
     """
-    # Check if API key is set
+    # 1. Security Check: Ensure the API key exists before trying to run the AI.
     if not os.environ.get("GROQ_API_KEY") and not os.environ.get("GROQ_API_KEY", "").startswith("gsk_"):
          return {"error": "Groq API key is not set. Please set the GROQ_API_KEY environment variable."}
 
-    # Initialize the messages state with the user's query
+    # 2. Setup the Initial State for LangGraph
+    # We create a dictionary matching our State definition in agent.py,
+    # and put the user's query in as a 'HumanMessage'
     initial_state = {"messages": [HumanMessage(content=request.query)]}
 
     try:
-        # Run the agent graph
+        # 3. RUN THE AI GRAPH
+        # app_graph.invoke() starts the loop we defined in agent.py.
+        # It will run agent -> tools -> agent -> tools until the agent decides it is done.
         result_state = app_graph.invoke(initial_state)
 
-        # The result state contains the list of messages. We return the content of the final AI message.
+        # 4. Extract the final answer
+        # The result state contains the entire conversation history.
+        # The very last message in the list is the AI's final answer.
         final_message = result_state["messages"][-1]
 
-        # Also return the full interaction log for educational purposes in the frontend
+        # 5. Extract the "Thought Process" for educational purposes
+        # We loop through all the messages to show the user exactly what tools the AI used.
         interaction_log = []
         for msg in result_state["messages"]:
             interaction_log.append({
-                "type": msg.__class__.__name__,
+                "type": msg.__class__.__name__, # E.g., 'HumanMessage', 'AIMessage', 'ToolMessage'
                 "content": msg.content,
                 "tool_calls": getattr(msg, "tool_calls", None)
             })
 
+        # Return a JSON response containing both the final answer and the thought process log
         return {
             "answer": final_message.content,
             "log": interaction_log
         }
     except Exception as e:
+        # If anything crashes, catch the error and send it back to the frontend safely
         return {"error": str(e)}
 
-# Serve static files for the frontend
+
+# --------------------------------------------------------------------------
+# STATIC FILES (FRONTEND)
+# --------------------------------------------------------------------------
+# This tells FastAPI: "For any request that doesn't match the endpoints above (like going to '/'),
+# look inside the 'static' folder and serve the files there (like our index.html)."
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
