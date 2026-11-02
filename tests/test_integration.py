@@ -71,7 +71,7 @@ class TestAgenticResearchAssistant(unittest.TestCase):
                 response = client.post("/research", json={"query": "test"})
             self.assertEqual(response.status_code, 200)
             self.assertIn("Invalid Groq API key format", response.json()["error"])
-            output = "\\n".join(captured.output)
+            output = "\n".join(captured.output)
             self.assertIn("[REQUEST REJECTED]", output)
             self.assertIn("duration_seconds=", output)
             self.assertIn("request_id=", output)
