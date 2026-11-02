@@ -5,7 +5,7 @@ A learning-based end-to-end project demonstrating the power of **FastAPI**, **La
 ## 🚀 Features
 - **FastAPI Backend**: Provides an efficient, asynchronous REST API.
 - **LangGraph Stateful Workflow**: Models an agentic loop allowing the AI to repeatedly search for information until it is satisfied.
-- **Groq LLM Integration**: Uses the blazing-fast and generous free tier of Groq's LLaMA 3 implementation via LangChain.
+- **Groq LLM Integration**: Uses OpenAI's open-weight `gpt-oss-120b` model, served on Groq's fast inference platform via LangChain.
 - **Web UI**: A simple HTML/JS frontend to interact with your AI agent.
 - **Integration Tests**: Tests the API using mocked AI responses, so you don't use real API credits during development.
 
