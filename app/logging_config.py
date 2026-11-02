@@ -72,10 +72,15 @@ def get_logger(name: str) -> RequestLoggerAdapter:
 
 def safe_log_value(value, max_length: int = 120) -> str:
     """Escape control characters and bound untrusted values before logging."""
-    text = str(value)
+    # Escape literal backslashes first so escaped controls remain unambiguous.
+    text = str(value).replace("\\", "\\\\")
     text = re.sub(
-        r"[\x00-\x1f\x7f]",
-        lambda match: f"\\x{ord(match.group(0)):02x}",
+        r"[\x00-\x1f\x7f-\x9f\u2028\u2029]",
+        lambda match: (
+            f"\\u{ord(match.group(0)):04x}"
+            if ord(match.group(0)) > 0xFF
+            else f"\\x{ord(match.group(0)):02x}"
+        ),
         text,
     )
     if len(text) > max_length:
