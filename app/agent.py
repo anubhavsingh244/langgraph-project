@@ -49,7 +49,7 @@ def get_llm_with_tools():
     """Lazily initializes and caches the LLM to avoid startup crashes if the API key is missing, while retaining connection reuse."""
     global _cached_llm_with_tools
     if _cached_llm_with_tools is None:
-        llm = ChatGroq(model_name="llama3-8b-8192", temperature=0.7)
+        llm = ChatGroq(model_name="mixtral-8x7b-32768", temperature=0.7)
         _cached_llm_with_tools = llm.bind_tools(tools)
     return _cached_llm_with_tools
 
