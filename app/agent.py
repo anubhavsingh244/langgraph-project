@@ -19,18 +19,12 @@ load_dotenv()
 # Initialize the Groq Large Language Model (LLM).
 # Think of this as the "brain" of our agent. We are using 'llama-3.1-8b-instant'
 # because it is very fast and available on the free tier.
-llm = ChatGroq(
-    model_name="llama-3.1-8b-instant",
-    temperature=0.7, # 0.0 is very strict, 1.0 is very creative. 0.7 is a good middle ground.
-)
-
 # Initialize the tool our agent will use. DuckDuckGoSearchRun allows the AI to search the web!
 search_tool = DuckDuckGoSearchRun()
 
 # We need to tell the LLM that it has permission to use this tool.
 # bind_tools() gives the AI a "manual" on how and when to use the search tool.
 tools = [search_tool]
-llm_with_tools = llm.bind_tools(tools)
 
 
 # --------------------------------------------------------------------------
@@ -47,12 +41,26 @@ class State(TypedDict):
 # 3. NODES (The actors in our graph)
 # --------------------------------------------------------------------------
 
+# We create a global variable to cache the LLM and tools.
+# This prevents us from creating a new client every single time the agent thinks.
+_cached_llm_with_tools = None
+
+def get_llm_with_tools():
+    """Lazily initializes and caches the LLM to avoid startup crashes if the API key is missing, while retaining connection reuse."""
+    global _cached_llm_with_tools
+    if _cached_llm_with_tools is None:
+        llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.7)
+        _cached_llm_with_tools = llm.bind_tools(tools)
+    return _cached_llm_with_tools
+
 def agent_node(state: State):
     """
     NODE 1: The Agent
     This function looks at the conversation history and decides what to do next.
     It might generate a final answer, or it might decide to use the search tool.
     """
+    llm_with_tools = get_llm_with_tools()
+
     messages = state["messages"]
 
     # Prompt Engineering: We give the AI a "persona" and strict rules to follow.
