@@ -27,12 +27,7 @@ async def health_check():
 def run_research(request: ResearchRequest):
     """Run the LangGraph agent and log a high-level request timeline."""
     request_started = time.perf_counter()
-    query_preview = request.query[:120].replace("\n", " ")
-    logger.info(
-        "[REQUEST START] /research | query_chars=%d | preview=%r",
-        len(request.query),
-        query_preview,
-    )
+    logger.info("[REQUEST START] /research | query_chars=%d", len(request.query))
 
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
