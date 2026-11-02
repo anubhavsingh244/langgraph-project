@@ -41,15 +41,25 @@ class State(TypedDict):
 # 3. NODES (The actors in our graph)
 # --------------------------------------------------------------------------
 
+# We create a global variable to cache the LLM and tools.
+# This prevents us from creating a new client every single time the agent thinks.
+_cached_llm_with_tools = None
+
+def get_llm_with_tools():
+    """Lazily initializes and caches the LLM to avoid startup crashes if the API key is missing, while retaining connection reuse."""
+    global _cached_llm_with_tools
+    if _cached_llm_with_tools is None:
+        llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.7)
+        _cached_llm_with_tools = llm.bind_tools(tools)
+    return _cached_llm_with_tools
+
 def agent_node(state: State):
     """
     NODE 1: The Agent
     This function looks at the conversation history and decides what to do next.
     It might generate a final answer, or it might decide to use the search tool.
     """
-    # Initialize LLM here so the app doesn't crash on startup if API key is missing
-    llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.7)
-    llm_with_tools = llm.bind_tools(tools)
+    llm_with_tools = get_llm_with_tools()
 
     messages = state["messages"]
 
