@@ -8,3 +8,5 @@ pydantic
 python-dotenv
 langchain-community
 ddgs
+pytest
+httpx
