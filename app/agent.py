@@ -17,8 +17,8 @@ from langgraph.graph.message import add_messages
 load_dotenv()
 
 # Initialize the Groq Large Language Model (LLM).
-# Think of this as the "brain" of our agent. We are using 'llama-3.1-8b-instant'
-# because it is very fast and available on the free tier.
+# Think of this as the "brain" of our agent. We are using 'openai/gpt-oss-120b',
+# OpenAI's open-weight reasoning model, served on Groq. It supports tool calling.
 # Initialize the tool our agent will use. DuckDuckGoSearchRun allows the AI to search the web!
 search_tool = DuckDuckGoSearchRun()
 
@@ -49,7 +49,7 @@ def get_llm_with_tools():
     """Lazily initializes and caches the LLM to avoid startup crashes if the API key is missing, while retaining connection reuse."""
     global _cached_llm_with_tools
     if _cached_llm_with_tools is None:
-        llm = ChatGroq(model_name="mixtral-8x7b-32768", temperature=0.7)
+        llm = ChatGroq(model_name="openai/gpt-oss-120b", temperature=0.7)
         _cached_llm_with_tools = llm.bind_tools(tools)
     return _cached_llm_with_tools
 
