@@ -200,25 +200,22 @@ class TestAgenticResearchAssistant(unittest.TestCase):
         self.assertEqual(safe_log_value("x" * 130), "x" * 120 + "...")
 
     def test_api_and_agent_logs_share_the_same_request_id(self):
-        """The request ID is present on both API and graph-node records."""
-        from app.agent import should_continue
+        """The request ID is shared by API and graph-node logs."""
+        from app.logging_config import get_logger
 
-        with self.assertLogs("research_assistant.api", level="INFO") as api_logs:
-            response = client.post("/research", json={"query": "test"})
+        def invoke(_state):
+            get_logger("agent").info("[TEST GRAPH NODE]")
+            return {"messages": [AIMessage(content="A safe answer.")]}
+
+        with patch("app.main.app_graph") as mock_graph:
+            mock_graph.invoke.side_effect = invoke
+            with self.assertLogs("research_assistant", level="INFO") as captured:
+                response = client.post("/research", json={"query": "correlation test"})
+
         self.assertEqual(response.status_code, 200)
-        api_id = next(
-            line.split("request_id=")[1].split(" | ")[0]
-            for line in api_logs.output if "[REQUEST START]" in line
-        )
-
-        token = set_request_id(api_id)
-        try:
-            with self.assertLogs("research_assistant.agent", level="INFO") as agent_logs:
-                should_continue({"messages": [AIMessage(content="done")]})
-        finally:
-            reset_request_id(token)
-        self.assertTrue(all(f"request_id={api_id}" in line for line in agent_logs.output))
-
-
-if __name__ == "__main__":
-    unittest.main()
+        api_line = next(line for line in captured.output if "[REQUEST START]" in line)
+        graph_line = next(line for line in captured.output if "[TEST GRAPH NODE]" in line)
+        api_id = api_line.split("request_id=")[1].split(" | ")[0]
+        graph_id = graph_line.split("request_id=")[1].split(" | ")[0]
+        self.assertEqual(api_id, graph_id)
+        self.assertEqual(len(api_id), 32)
