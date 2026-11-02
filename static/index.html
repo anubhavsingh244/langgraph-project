@@ -20,7 +20,9 @@
         .answer-section { margin-top: 20px; padding: 20px; background-color: #e8f5e9; border-radius: 4px; display: none; }
         .error { color: red; margin-top: 10px; display: none; }
     </style>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Use marked for rendering Markdown and DOMPurify for sanitizing it -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@15.0.0/lib/marked.umd.js" integrity="sha384-sO90K5D5mUeK/B0fQ72B/79G0R0I3/R5fT8/07fH6kP/3A2X+0WfW+k9k2z+j2w0" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.3/dist/purify.min.js" integrity="sha384-88Z4e5F60xNXY3iY3Vd6t2PzBHz26h8Mv0z6Lz90kUa79X42nN3pW1yZ8N+4r2wV" crossorigin="anonymous"></script>
 </head>
 <body>
 
@@ -42,7 +44,7 @@
 
     <div class="answer-section" id="answerSection">
         <h3>Final Answer:</h3>
-        <div id="finalAnswer" style="white-space: pre-wrap; font-family: inherit;"></div>
+        <div id="finalAnswer"></div>
     </div>
 
     <div class="log-section" id="logSection">
@@ -91,8 +93,11 @@ and updates the webpage with the results.
             }
 
             // 5. Update the page with the Final Answer
-            // We use regex (/\n/g) to replace newline characters from the AI with HTML <br> tags
-            document.getElementById("finalAnswer").innerHTML = marked.parse(data.answer);
+            // We parse the Markdown from the AI, sanitize it to prevent XSS attacks,
+            // and inject it into the DOM.
+            const parsedHTML = marked.parse(data.answer);
+            const cleanHTML = DOMPurify.sanitize(parsedHTML);
+            document.getElementById("finalAnswer").innerHTML = cleanHTML;
             document.getElementById("answerSection").style.display = "block";
 
             // 6. Update the page with the "Thought Process" Log
@@ -109,7 +114,7 @@ and updates the webpage with the results.
                     content = `<i>Decided to use tool: <b>${entry.tool_calls[0].name}</b> with arguments ${JSON.stringify(entry.tool_calls[0].args)}</i>`;
                 }
 
-                div.innerHTML = `<div class="log-type">${entry.type}</div><div>${content.replace(/\n/g, '<br>')}</div>`;
+                div.innerHTML = DOMPurify.sanitize(`<div class="log-type">${entry.type}</div><div>${content.replace(/\n/g, '<br>')}</div>`);
                 logContainer.appendChild(div);
             });
             // Reveal the log section
